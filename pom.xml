@@ -11,6 +11,7 @@
 
     <modules>
         <module>multicast-api</module>
+        <module>multicast-impl</module>
     </modules>
 
     <build>
