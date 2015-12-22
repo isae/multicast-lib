@@ -28,9 +28,6 @@ public class MulticastMessenger implements Messenger, Closeable {
     private static final int BUFFER_SIZE = 4 * 1024 * 1024; // 4MB
     private static final int HEARTBEAT_DELAY = 1000;
 
-    private final ExecutorService futuresService = Executors.newSingleThreadExecutor(new ThreadFactoryBuilder()
-            .setNameFormat("MulticastMessenger-Future-%d")
-            .build());
     private final ExecutorService messagesService = Executors.newSingleThreadExecutor(new ThreadFactoryBuilder()
             .setNameFormat("MulticastMessenger-Messages-%d")
             .build());
@@ -79,14 +76,12 @@ public class MulticastMessenger implements Messenger, Closeable {
 
     @Override
     public Future<Feed> registerFeed(String topic, String description) {
-        return futuresService.submit(() -> {
-            String id = UUID.randomUUID().toString();
-            InetAddress group = NetUtils.getRandomFeedGroup();
-            MulticastFeed feed = new MulticastFeed(group, id, topic, description);
-            localFeeds.add(feed);
-            enqueueMessage(createHeartbeat(feed));
-            return feed;
-        });
+        String id = UUID.randomUUID().toString();
+        InetAddress group = NetUtils.getRandomFeedGroup();
+        MulticastFeed feed = new MulticastFeed(group, id, topic, description);
+        localFeeds.add(feed);
+        enqueueMessage(createHeartbeat(feed));
+        return CompletableFuture.completedFuture(feed);
     }
 
     private static FeedHeartbeat createHeartbeat(MulticastFeed feed) {
@@ -107,14 +102,18 @@ public class MulticastMessenger implements Messenger, Closeable {
     public Future<Subscription> subscribe(Feed feed, FeedListener listener) {
         MulticastFeed multicastFeed = safeMulticastFeed(feed);
         Objects.requireNonNull(listener, "listener");
-        return futuresService.submit(() -> {
+        try {
             NetworkInterface networkInterface = NetworkInterface.getByInetAddress(InetAddress.getLocalHost());
             MembershipKey key = listenerChannel.join(multicastFeed.getGroup(), networkInterface);
             MulticastSubscription subscription = new MulticastSubscription(multicastFeed, key, listener);
             subscriptionsMap.computeIfAbsent(multicastFeed.getId(), ign -> new CopyOnWriteArrayList<>())
                     .add(subscription);
-            return subscription;
-        });
+            return CompletableFuture.completedFuture(subscription);
+        } catch (Exception e) {
+            CompletableFuture<Subscription> future = new CompletableFuture<>();
+            future.completeExceptionally(e);
+            return future;
+        }
     }
 
     @Override
@@ -263,7 +262,7 @@ public class MulticastMessenger implements Messenger, Closeable {
         } catch (InterruptedException ex) {
             log.info("Thread interrupted");
         }
-}
+    }
 
     @Override
     public void close() throws IOException {
