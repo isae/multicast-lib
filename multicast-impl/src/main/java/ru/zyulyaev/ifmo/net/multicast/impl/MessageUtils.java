@@ -63,6 +63,7 @@ public class MessageUtils {
         buffer.reset();
         byte[] bytes = new byte[length];
         buffer.get(bytes);
+        buffer.get();
         return new String(bytes, CHARSET);
     }
 

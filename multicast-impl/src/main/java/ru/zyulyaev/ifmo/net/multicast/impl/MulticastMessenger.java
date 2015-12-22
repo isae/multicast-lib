@@ -62,11 +62,11 @@ public class MulticastMessenger implements Messenger, Closeable {
     }
 
     public static MulticastMessenger open(int port) throws IOException {
-        DatagramChannel listenerChannel = DatagramChannel.open();
+        DatagramChannel listenerChannel = DatagramChannel.open(StandardProtocolFamily.INET);
         listenerChannel.configureBlocking(false);
         InetSocketAddress socketAddress = new InetSocketAddress(port);
         listenerChannel.bind(socketAddress);
-        NetworkInterface networkInterface = NetworkInterface.getByInetAddress(socketAddress.getAddress());
+        NetworkInterface networkInterface = NetworkInterface.getByInetAddress(InetAddress.getLocalHost());
         listenerChannel.join(NetUtils.getHeartbeatGroup(), networkInterface);
         return new MulticastMessenger(Selector.open(), listenerChannel, port);
     }
@@ -84,8 +84,18 @@ public class MulticastMessenger implements Messenger, Closeable {
             InetAddress group = NetUtils.getRandomFeedGroup();
             MulticastFeed feed = new MulticastFeed(group, id, topic, description);
             localFeeds.add(feed);
+            enqueueMessage(createHeartbeat(feed));
             return feed;
         });
+    }
+
+    private static FeedHeartbeat createHeartbeat(MulticastFeed feed) {
+        return new FeedHeartbeat(
+                feed.getId(),
+                feed.getGroup().getAddress(),
+                feed.getTopic(),
+                feed.getDescription()
+        );
     }
 
     @Override
@@ -118,17 +128,21 @@ public class MulticastMessenger implements Messenger, Closeable {
     private synchronized void enqueueMessage(Message message) {
         messageQueue.add(message);
         listenerKey.interestOps(listenerKey.interestOps() | SelectionKey.OP_WRITE);
+        selector.wakeup();
     }
 
     private synchronized void enqueueMessageFirst(Message message) {
         messageQueue.addFirst(message);
         listenerKey.interestOps(listenerKey.interestOps() | SelectionKey.OP_WRITE);
+        selector.wakeup();
     }
 
     private synchronized Message dequeueMessage() {
         Message message = messageQueue.poll();
-        if (messageQueue.isEmpty())
+        if (messageQueue.isEmpty()) {
             listenerKey.interestOps(listenerKey.interestOps() & ~SelectionKey.OP_WRITE);
+            selector.wakeup();
+        }
         return message;
     }
 
@@ -170,6 +184,7 @@ public class MulticastMessenger implements Messenger, Closeable {
                 log.warn("Unknown message came. Skip.");
                 continue;
             }
+            log.debug("Received {} from {}.", message, source);
             switch (message.getType()) {
                 case Message.FEED_MESSAGE:
                     notifySubscriptions(message.asFeedMessage());
@@ -207,7 +222,9 @@ public class MulticastMessenger implements Messenger, Closeable {
                 log.error("Unknown message {}. Skipped.", message);
                 continue;
             }
-            int wrote = channel.send(buffer, new InetSocketAddress(target, port));
+            InetSocketAddress address = new InetSocketAddress(target, port);
+            log.debug("Sending {} to {}.", message, address);
+            int wrote = channel.send(buffer, address);
             if (wrote == 0) {
                 enqueueMessageFirst(message);
                 break;
@@ -239,19 +256,14 @@ public class MulticastMessenger implements Messenger, Closeable {
         try {
             while (!Thread.interrupted()) {
                 for (MulticastFeed localFeed : localFeeds) {
-                    enqueueMessage(new FeedHeartbeat(
-                            localFeed.getId(),
-                            localFeed.getGroup().getAddress(),
-                            localFeed.getTopic(),
-                            localFeed.getDescription()
-                    ));
+                    enqueueMessage(createHeartbeat(localFeed));
                 }
                 Thread.sleep(HEARTBEAT_DELAY);
             }
         } catch (InterruptedException ex) {
-            log.info("Thread interrupted", ex);
+            log.info("Thread interrupted");
         }
-    }
+}
 
     @Override
     public void close() throws IOException {

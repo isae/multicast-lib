@@ -1,7 +1,8 @@
 package ru.zyulyaev.ifmo.net.multicast.impl;
 
+import com.google.common.net.InetAddresses;
+
 import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
@@ -13,21 +14,11 @@ public class NetUtils {
 
     /** <CODE>224.0.0.0</CODE> */
     public static InetAddress getHeartbeatGroup() {
-        return getGroupByIndex(FIRST_GROUP);
+        return InetAddresses.fromInteger(FIRST_GROUP);
     }
 
     /** <CODE>224.0.0.1</CODE> to <CODE>239.255.255.255</CODE> */
     public static InetAddress getRandomFeedGroup()  {
-        return getGroupByIndex(ThreadLocalRandom.current().nextInt(FIRST_GROUP, LAST_GROUP) + 1);
-    }
-
-    private static InetAddress getGroupByIndex(int group) {
-        byte[] addr = new byte[]{(byte) (group >> 24), (byte) (group >> 16), (byte) (group >> 8), (byte) group};
-        try {
-            return InetAddress.getByAddress(addr);
-        } catch (UnknownHostException e) {
-            // wtf?!
-            throw new AssertionError(e);
-        }
+        return InetAddresses.fromInteger(ThreadLocalRandom.current().nextInt(FIRST_GROUP, LAST_GROUP) + 1);
     }
 }
