@@ -80,7 +80,7 @@ public class MulticastMessenger implements Messenger, Closeable {
                 NetworkInterface ni = en.nextElement();
                 for (Enumeration<InetAddress> enA = ni.getInetAddresses(); enA.hasMoreElements(); ) {
                     InetAddress addr = enA.nextElement();
-                    if (addr.isLoopbackAddress()) {
+                    if (!addr.isLoopbackAddress() && addr.isLinkLocalAddress()) {
                         return ni;
                     }
                 }
