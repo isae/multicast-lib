@@ -20,28 +20,41 @@ import java.nio.channels.Selector;
 import java.util.*;
 import java.util.concurrent.*;
 
+
 /**
  * Created by nikita on 19.12.15.
  */
 public class MulticastMessenger implements Messenger, Closeable {
     private static final Logger log = LoggerFactory.getLogger(MulticastMessenger.class);
+
     private static final int BUFFER_SIZE = 4 * 1024 * 1024; // 4MB
+
     private static final int HEARTBEAT_DELAY = 1000;
 
     private final ExecutorService messagesService = Executors.newSingleThreadExecutor(new ThreadFactoryBuilder()
             .setNameFormat("MulticastMessenger-Messages-%d")
             .build());
+
     private final Map<String, MulticastFeed> knownFeeds = new ConcurrentHashMap<>();
+
     private final Set<MulticastFeed> localFeeds = new CopyOnWriteArraySet<>();
+
     private final Map<String, List<MulticastSubscription>> subscriptionsMap = new ConcurrentHashMap<>();
+
     private final Deque<Message> messageQueue = new ArrayDeque<>();
 
     private final Thread backgroundThread;
+
     private final Thread broadcastThread;
+
     private final Selector selector;
+
     private final DatagramChannel listenerChannel;
+
     private final SelectionKey listenerKey;
+
     private final int port;
+
     private final ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
 
     private MulticastMessenger(Selector selector, DatagramChannel listenerChannel, int port) throws IOException {
@@ -58,19 +71,38 @@ public class MulticastMessenger implements Messenger, Closeable {
         broadcastThread.start();
     }
 
+    private static NetworkInterface getLocalNetworkInterface() throws UnknownHostException, SocketException {
+        NetworkInterface networkInterface = NetworkInterface.getByInetAddress(InetAddress.getLocalHost());
+        if (networkInterface != null) {
+            return networkInterface;
+        } else {
+            for (Enumeration<NetworkInterface> en = NetworkInterface.getNetworkInterfaces(); en.hasMoreElements(); ) {
+                NetworkInterface ni = en.nextElement();
+                for (Enumeration<InetAddress> enA = ni.getInetAddresses(); enA.hasMoreElements(); ) {
+                    InetAddress addr = enA.nextElement();
+                    if (addr.isLoopbackAddress()) {
+                        return ni;
+                    }
+                }
+            }
+            throw new IllegalStateException("Failed to find network interface!");
+        }
+    }
+
     public static MulticastMessenger open(int port) throws IOException {
         DatagramChannel listenerChannel = DatagramChannel.open(StandardProtocolFamily.INET);
         listenerChannel.configureBlocking(false);
         InetSocketAddress socketAddress = new InetSocketAddress(port);
         listenerChannel.bind(socketAddress);
-        NetworkInterface networkInterface = NetworkInterface.getByInetAddress(InetAddress.getLocalHost());
+        NetworkInterface networkInterface = getLocalNetworkInterface();
         listenerChannel.join(NetUtils.getHeartbeatGroup(), networkInterface);
         return new MulticastMessenger(Selector.open(), listenerChannel, port);
     }
 
     private static MulticastFeed safeMulticastFeed(Feed feed) {
-        if (!(feed instanceof MulticastFeed))
+        if (!(feed instanceof MulticastFeed)) {
             throw new IllegalArgumentException("Unknown feed: " + feed);
+        }
         return (MulticastFeed) feed;
     }
 
@@ -103,7 +135,7 @@ public class MulticastMessenger implements Messenger, Closeable {
         MulticastFeed multicastFeed = safeMulticastFeed(feed);
         Objects.requireNonNull(listener, "listener");
         try {
-            NetworkInterface networkInterface = NetworkInterface.getByInetAddress(InetAddress.getLocalHost());
+            NetworkInterface networkInterface = getLocalNetworkInterface();
             MembershipKey key = listenerChannel.join(multicastFeed.getGroup(), networkInterface);
             MulticastSubscription subscription = new MulticastSubscription(multicastFeed, key, listener);
             subscriptionsMap.computeIfAbsent(multicastFeed.getId(), ign -> new CopyOnWriteArrayList<>())
@@ -164,10 +196,12 @@ public class MulticastMessenger implements Messenger, Closeable {
     }
 
     private void processKey(SelectionKey key) throws IOException {
-        if (key.isReadable())
+        if (key.isReadable()) {
             processRead(key);
-        if (key.isWritable())
+        }
+        if (key.isWritable()) {
             processWrite(key);
+        }
     }
 
     private void processRead(SelectionKey key) throws IOException {
@@ -175,8 +209,9 @@ public class MulticastMessenger implements Messenger, Closeable {
         while (true) {
             buffer.clear();
             SocketAddress source = channel.receive(buffer);
-            if (source == null)
+            if (source == null) {
                 break;
+            }
             buffer.flip();
             Message message = MessageUtils.parse(buffer);
             if (message == null) {
