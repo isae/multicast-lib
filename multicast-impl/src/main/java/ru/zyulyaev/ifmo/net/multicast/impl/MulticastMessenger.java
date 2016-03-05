@@ -71,16 +71,16 @@ public class MulticastMessenger implements Messenger, Closeable {
         broadcastThread.start();
     }
 
-    private static NetworkInterface getLocalNetworkInterface() throws UnknownHostException, SocketException {
+    private static NetworkInterface getLocalNetworkInterface() throws IOException {
         NetworkInterface networkInterface = NetworkInterface.getByInetAddress(InetAddress.getLocalHost());
-        if (networkInterface != null) {
+        if (networkInterface != null && !networkInterface.isLoopback()) {
             return networkInterface;
         } else {
             for (Enumeration<NetworkInterface> en = NetworkInterface.getNetworkInterfaces(); en.hasMoreElements(); ) {
                 NetworkInterface ni = en.nextElement();
                 for (Enumeration<InetAddress> enA = ni.getInetAddresses(); enA.hasMoreElements(); ) {
                     InetAddress addr = enA.nextElement();
-                    if (!addr.isLoopbackAddress() && addr.isLinkLocalAddress()) {
+                    if (!addr.isLoopbackAddress() && addr.isLinkLocalAddress() && addr.isReachable(1000)) {
                         return ni;
                     }
                 }
